@@ -141,12 +141,6 @@ jobs:
         run: |
           if [[ -n "${TG_BOT_TOKEN:-}" && -n "${TG_CHAT_ID:-}" ]]; then
             PAYLOAD="${SUB_URL#*payload=}"
-            MSG="🚀 *Unikraft Cloud 节点部署完成*
-*地区*: \`${{ steps.deploy.outputs.metro }}\`
-*域名*: \`${{ steps.deploy.outputs.fqdn }}\`
-*解密链接*: [点击解密订阅](${SUB_URL})
-*备用链接*: [备用解密](https://vevc.github.io/unikraft-deploy/?payload=${PAYLOAD})"
-            curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
-              -H "Content-Type: application/json" \
-              -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":\"${MSG}\",\"parse_mode\":\"Markdown\"}" || true
+            MSG="🚀 Unikraft Cloud 节点部署完成%0A地区: ${{ steps.deploy.outputs.metro }}%0A域名: ${{ steps.deploy.outputs.fqdn }}%0A解密链接: ${SUB_URL}"
+            curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=${MSG}" || true
           fi

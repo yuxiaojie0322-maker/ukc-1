@@ -1,6 +1,9 @@
 name: Create Unikraft Instance
 
 on:
+  push:
+    paths:
+      - '.github/workflows/deploy.yml'
   workflow_dispatch:
     inputs:
       metro:
@@ -21,6 +24,7 @@ on:
 
 jobs:
   deploy:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

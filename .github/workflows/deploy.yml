@@ -15,9 +15,9 @@ on:
           - sin - 新加坡 (Singapore)
           - was - 华盛顿 (Washington DC, US)
       uuid:
-        description: VLESS UUID（若不填写则使用 Secret UUID）
+        description: VLESS UUID（可留空，默认使用 Secret UUID）
         required: false
-        default: '694949f5-54c3-4113-b3c9-2d2518f770f4'
+        default: ''
 
 jobs:
   deploy:
@@ -138,18 +138,19 @@ jobs:
           echo "========================================"
 
       - name: Send Telegram notification
-        if: env.TG_BOT_TOKEN != '' && env.TG_CHAT_ID != ''
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           SUB_URL: ${{ steps.sub.outputs.sub_url }}
         run: |
-          PAYLOAD="${SUB_URL#*payload=}"
-          MSG="🚀 *Unikraft Cloud 节点部署完成*
+          if [[ -n "${TG_BOT_TOKEN:-}" && -n "${TG_CHAT_ID:-}" ]]; then
+            PAYLOAD="${SUB_URL#*payload=}"
+            MSG="🚀 *Unikraft Cloud 节点部署完成*
 *地区*: \`${{ steps.deploy.outputs.metro }}\`
 *域名*: \`${{ steps.deploy.outputs.fqdn }}\`
 *解密链接*: [点击解密订阅](${SUB_URL})
 *备用链接*: [备用解密](https://vevc.github.io/unikraft-deploy/?payload=${PAYLOAD})"
-          curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
-            -H "Content-Type: application/json" \
-            -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":\"${MSG}\",\"parse_mode\":\"Markdown\"}" || true
+            curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
+              -H "Content-Type: application/json" \
+              -d "{\"chat_id\":\"${TG_CHAT_ID}\",\"text\":\"${MSG}\",\"parse_mode\":\"Markdown\"}" || true
+          fi

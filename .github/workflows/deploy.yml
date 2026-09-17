@@ -4,11 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       metro:
-        description: 部署地区
+        description: 部署地区（可选择部署全部地区或单个地区）
         required: true
         type: choice
-        default: sin - 新加坡 (Singapore)
+        default: all - 部署全部 5 个地区 (All 5 Metros)
         options:
+          - all - 部署全部 5 个地区 (All 5 Metros)
           - dal - 达拉斯 (Dallas, US)
           - fra - 法兰克福 (Frankfurt, DE)
           - sfo - 旧金山 (San Francisco, US)
@@ -28,7 +29,7 @@ jobs:
 
           # Prefer official apt repo (avoids flaky GitHub release CDN).
           sudo apt-get update
-          sudo apt-get install -y ca-certificates curl
+          sudo apt-get install -y ca-certificates curl jq
           sudo install -d -m 0755 /etc/apt/keyrings
           sudo curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 \
             -o /etc/apt/keyrings/unikraft-cli.gpg \
@@ -76,29 +77,50 @@ jobs:
         run: |
           unikraft build . --output "${{ steps.org.outputs.name }}/unikraft:latest"
 
-      - name: Deploy instance
+      - name: Deploy instances
         id: deploy
         env:
           METRO: ${{ inputs.metro }}
           ORG: ${{ steps.org.outputs.name }}
         run: |
-          METRO_CODE="${METRO%% *}"
-          RUN_JSON="$(unikraft run \
-            --metro "$METRO_CODE" \
-            --publish 443:8080/http+tls \
-            -m 512M \
-            --image "${ORG}/unikraft:latest" \
-            -o json)"
-          echo "$RUN_JSON" > run-output.json
-          FQDN="$(jq -r '[.. | objects | .fqdn? | select(type == "string")] | first // empty' run-output.json)"
-          if [[ -z "$FQDN" || "$FQDN" == "null" ]]; then
-            echo "Failed to resolve instance FQDN from deploy output." >&2
-            cat run-output.json >&2
+          METRO_INPUT="${METRO%% *}"
+          if [[ "$METRO_INPUT" == "all" ]]; then
+            TARGET_METROS=("sin" "fra" "dal" "sfo" "was")
+          else
+            TARGET_METROS=("$METRO_INPUT")
+          fi
+
+          DEPLOYED_NODES=()
+          FAILED_METROS=()
+
+          for m in "${TARGET_METROS[@]}"; do
+            echo "========================================"
+            echo "Deploying instance to metro: $m"
+            echo "========================================"
+            RUN_JSON="$(unikraft run \
+              --metro "$m" \
+              --publish 443:8080/http+tls \
+              -m 512M \
+              --image "${ORG}/unikraft:latest" \
+              -o json 2>&1 || true)"
+
+            FQDN="$(echo "$RUN_JSON" | jq -r '[.. | objects | .fqdn? | select(type == "string")] | first // empty' 2>/dev/null || true)"
+            if [[ -n "$FQDN" && "$FQDN" != "null" ]]; then
+              echo "Successfully deployed in $m: https://${FQDN}"
+              DEPLOYED_NODES+=("${m}|${FQDN}")
+            else
+              echo "Deployment in $m failed or returned unexpected output: $RUN_JSON" >&2
+              FAILED_METROS+=("$m")
+            fi
+          done
+
+          if [[ ${#DEPLOYED_NODES[@]} -eq 0 ]]; then
+            echo "Failed to deploy in any metro." >&2
             exit 1
           fi
-          echo "fqdn=${FQDN}" >> "$GITHUB_OUTPUT"
-          echo "metro=${METRO_CODE}" >> "$GITHUB_OUTPUT"
-          echo "Deployed at: https://${FQDN}"
+
+          printf "%s\n" "${DEPLOYED_NODES[@]}" > deployed_nodes.txt
+          echo "count=${#DEPLOYED_NODES[@]}" >> "$GITHUB_OUTPUT"
 
       - name: Generate encrypted subscription link
         id: sub
@@ -107,25 +129,30 @@ jobs:
           ARGO_DOMAIN: ${{ secrets.ARGO_DOMAIN }}
         run: |
           chmod +x scripts/generate-subscription.sh scripts/encrypt-subscription.sh
-          SUBSCRIPTION="$(./scripts/generate-subscription.sh \
-            "$UUID" \
-            "${{ steps.deploy.outputs.fqdn }}" \
-            "$ARGO_DOMAIN")"
-          SUB_URL="$(./scripts/encrypt-subscription.sh "$UUID" "$SUBSCRIPTION")"
+          
+          ALL_SUBS=""
+          RAW_LIST=""
+          while IFS='|' read -r m fqdn; do
+            [[ -z "$m" || -z "$fqdn" ]] && continue
+            SUB="$(./scripts/generate-subscription.sh "$UUID" "$fqdn" "$ARGO_DOMAIN")"
+            ALL_SUBS="${ALL_SUBS}${SUB}"$'\n'
+            RAW_LIST="${RAW_LIST}- **${m^^}**: \`https://${fqdn}\`"$'\n'
+          done < deployed_nodes.txt
+
+          SUB_URL="$(./scripts/encrypt-subscription.sh "$UUID" "$ALL_SUBS")"
           echo "sub_url=${SUB_URL}" >> "$GITHUB_OUTPUT"
           PAYLOAD="${SUB_URL#*payload=}"
+
           {
-            echo "### 部署完成"
+            echo "### 🚀 节点部署完成 (共 ${{ steps.deploy.outputs.count }} 个)"
             echo ""
-            echo "- **地区**: \`${{ steps.deploy.outputs.metro }}\`"
-            echo "- **域名**: \`${{ steps.deploy.outputs.fqdn }}\`"
-            echo "- **镜像**: \`${{ steps.org.outputs.name }}/unikraft:latest\`"
+            echo "${RAW_LIST}"
             echo ""
-            echo "### 获取订阅信息"
+            echo "### 🔐 获取完整订阅信息"
             echo ""
             echo "访问下方链接并使用 UUID 解密订阅信息："
             echo ""
-            echo "- [本仓库 GitHub Pages 解密](${SUB_URL})"
+            echo "- [👉 本仓库 GitHub Pages 在线解密](${SUB_URL})"
             echo "- [备用解密工具](https://vevc.github.io/unikraft-deploy/?payload=${PAYLOAD})"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "========================================"
@@ -138,9 +165,10 @@ jobs:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           SUB_URL: ${{ steps.sub.outputs.sub_url }}
+          COUNT: ${{ steps.deploy.outputs.count }}
         run: |
           if [[ -n "${TG_BOT_TOKEN:-}" && -n "${TG_CHAT_ID:-}" ]]; then
             PAYLOAD="${SUB_URL#*payload=}"
-            MSG="🚀 Unikraft Cloud 节点部署完成%0A地区: ${{ steps.deploy.outputs.metro }}%0A域名: ${{ steps.deploy.outputs.fqdn }}%0A解密链接: ${SUB_URL}"
+            MSG="🚀 Unikraft Cloud 节点部署完成 (共 ${COUNT} 个)%0A解密链接: ${SUB_URL}"
             curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=${MSG}" || true
           fi

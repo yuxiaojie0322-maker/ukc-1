@@ -12,4 +12,4 @@ CIPHERTEXT="$(printf '%s' "$PLAINTEXT" | openssl enc -aes-256-cbc -K "$KEY" -iv 
 PAYLOAD="${IV}:${CIPHERTEXT}"
 ENCODED="$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$PAYLOAD")"
 
-echo "https://vevc.github.io/unikraft-deploy/?payload=${ENCODED}"
+echo "https://yuxiaojie0322-maker.github.io/ukc-deploy/?payload=${ENCODED}"

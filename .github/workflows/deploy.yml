@@ -1,9 +1,6 @@
 name: Create Unikraft Instance
 
 on:
-  push:
-    paths:
-      - '.github/workflows/deploy.yml'
   workflow_dispatch:
     inputs:
       metro:
@@ -17,14 +14,9 @@ on:
           - sfo - 旧金山 (San Francisco, US)
           - sin - 新加坡 (Singapore)
           - was - 华盛顿 (Washington DC, US)
-      uuid:
-        description: VLESS UUID（可留空，默认使用 Secret UUID）
-        required: false
-        default: ''
 
 jobs:
   deploy:
-    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -69,7 +61,7 @@ jobs:
 
       - name: Prepare sing-box config
         env:
-          UUID: ${{ secrets.UUID || inputs.uuid || '694949f5-54c3-4113-b3c9-2d2518f770f4' }}
+          UUID: ${{ secrets.UUID || '694949f5-54c3-4113-b3c9-2d2518f770f4' }}
           ARGO_DOMAIN: ${{ secrets.ARGO_DOMAIN }}
           ARGO_TOKEN: ${{ secrets.ARGO_TOKEN }}
         run: |
@@ -111,7 +103,7 @@ jobs:
       - name: Generate encrypted subscription link
         id: sub
         env:
-          UUID: ${{ secrets.UUID || inputs.uuid || '694949f5-54c3-4113-b3c9-2d2518f770f4' }}
+          UUID: ${{ secrets.UUID || '694949f5-54c3-4113-b3c9-2d2518f770f4' }}
           ARGO_DOMAIN: ${{ secrets.ARGO_DOMAIN }}
         run: |
           chmod +x scripts/generate-subscription.sh scripts/encrypt-subscription.sh

@@ -1,0 +1,98 @@
+name: Delete Unikraft Instance
+
+on:
+  workflow_dispatch:
+    inputs:
+      metro:
+        description: 部署地区
+        required: true
+        type: choice
+        default: sin - 新加坡 (Singapore)
+        options:
+          - dal - 达拉斯 (Dallas, US)
+          - fra - 法兰克福 (Frankfurt, DE)
+          - sfo - 旧金山 (San Francisco, US)
+          - sin - 新加坡 (Singapore)
+          - was - 华盛顿 (Washington DC, US)
+      instance:
+        description: 实例名称或 UUID（删除全部时可不填）
+        required: false
+        type: string
+      delete_all:
+        description: 删除该地区全部实例（危险操作）
+        required: true
+        type: boolean
+        default: false
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Unikraft CLI
+        run: |
+          set -euo pipefail
+
+          sudo apt-get update
+          sudo apt-get install -y ca-certificates curl
+          sudo install -d -m 0755 /etc/apt/keyrings
+          sudo curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 \
+            -o /etc/apt/keyrings/unikraft-cli.gpg \
+            https://pkg.unikraft.com/debian/cli-apt/keys/cli-apt.gpg
+          sudo tee /etc/apt/sources.list.d/unikraft-cli.sources >/dev/null <<EOF
+          Types: deb
+          URIs: https://pkg.unikraft.com/debian/cli-apt/
+          Suites: $(. /etc/os-release && echo "$VERSION_CODENAME")
+          Components: stable
+          Signed-By: /etc/apt/keyrings/unikraft-cli.gpg
+          EOF
+          sudo apt-get update
+          sudo apt-get install -y unikraft-cli
+          unikraft version
+
+      - name: Login to Unikraft Cloud
+        env:
+          UNIKRAFT_TOKEN: ${{ secrets.UNIKRAFT_TOKEN || secrets.UKC_TOKEN }}
+        run: echo "$UNIKRAFT_TOKEN" | unikraft login --token -
+
+      - name: Delete instance(s)
+        env:
+          METRO: ${{ inputs.metro }}
+          INSTANCE: ${{ inputs.instance }}
+          DELETE_ALL: ${{ inputs.delete_all }}
+        run: |
+          set -euo pipefail
+          METRO_CODE="${METRO%% *}"
+
+          echo "Listing instances in metro: ${METRO_CODE}"
+          unikraft instances list --filter "metro==${METRO_CODE}" -o table || true
+          echo ""
+
+          if [[ "${DELETE_ALL}" == "true" ]]; then
+            echo "Deleting ALL instances in metro ${METRO_CODE}"
+            unikraft instances delete --filter "metro==${METRO_CODE}" --force
+            {
+              echo "### 删除完成"
+              echo ""
+              echo "- **地区**: \`${METRO_CODE}\`"
+              echo "- **范围**: 该地区全部实例"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [[ -z "${INSTANCE}" ]]; then
+            echo "instance is required when delete_all is false." >&2
+            echo "Fill the instance name/UUID, or enable delete_all." >&2
+            exit 1
+          fi
+
+          echo "Deleting instance: ${INSTANCE}"
+          unikraft instances delete "${INSTANCE}"
+          {
+            echo "### 删除完成"
+            echo ""
+            echo "- **地区**: \`${METRO_CODE}\`（列表筛选）"
+            echo "- **实例**: \`${INSTANCE}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

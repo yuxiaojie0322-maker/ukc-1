@@ -1,5 +1,0 @@
-spec: v0.6
-name: x-tunnel
-runtime: base:latest
-rootfs: ./Dockerfile
-cmd: ["/server"]

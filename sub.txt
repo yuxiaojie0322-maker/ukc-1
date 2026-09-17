@@ -1,5 +1,0 @@
-vless://694949f5-54c3-4113-b3c9-2d2518f770f4@fra.blibli.kdns.fr:443?encryption=none&security=tls&sni=fra.blibli.kdns.fr&type=ws&host=fra.blibli.kdns.fr&path=%2F#CF-%E6%B3%95%E5%85%B0%E5%85%8B%E7%A6%8F(FRA)
-vless://694949f5-54c3-4113-b3c9-2d2518f770f4@was.blibli.kdns.fr:443?encryption=none&security=tls&sni=was.blibli.kdns.fr&type=ws&host=was.blibli.kdns.fr&path=%2F#CF-%E5%8D%8E%E7%9B%9B%E9%A1%BF(WAS)
-vless://694949f5-54c3-4113-b3c9-2d2518f770f4@dal.blibli.kdns.fr:443?encryption=none&security=tls&sni=dal.blibli.kdns.fr&type=ws&host=dal.blibli.kdns.fr&path=%2F#CF-%E8%BE%BE%E6%8B%89%E6%96%AF(DAL)
-vless://694949f5-54c3-4113-b3c9-2d2518f770f4@sin.blibli.kdns.fr:443?encryption=none&security=tls&sni=sin.blibli.kdns.fr&type=ws&host=sin.blibli.kdns.fr&path=%2F#CF-%E6%96%B0%E5%8A%A0%E5%9D%A1(SIN)
-vless://694949f5-54c3-4113-b3c9-2d2518f770f4@sfo.blibli.kdns.fr:443?encryption=none&security=tls&sni=sfo.blibli.kdns.fr&type=ws&host=sfo.blibli.kdns.fr&path=%2F#CF-%E6%97%A7%E9%87%91%E5%B1%B1(SFO)

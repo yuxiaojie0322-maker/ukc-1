@@ -1,0 +1,23 @@
+{
+  "log": {
+    "level": "panic",
+    "timestamp": true
+  },
+  "inbounds": [
+    {
+      "type": "vless",
+      "listen": "::",
+      "listen_port": 8080,
+      "users": [
+        {
+          "name": "default",
+          "uuid": "2584b733-9095-4bec-a7d5-62b473540f7a"
+        }
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "/"
+      }
+    }
+  ]
+}

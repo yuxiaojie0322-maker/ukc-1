@@ -1,0 +1,27 @@
+{
+  "log": {
+    "level": "panic",
+    "timestamp": true
+  },
+  "inbounds": [
+    {
+      "type": "vless",
+      "listen": "::",
+      "listen_port": 8080,
+      "users": [
+        {
+          "name": "default",
+          "uuid": "YOUR_UUID"
+        }
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "/"
+      }
+    },
+    {
+      "type": "cloudflared",
+      "token": "YOUR_TOKEN"
+    }
+  ]
+}

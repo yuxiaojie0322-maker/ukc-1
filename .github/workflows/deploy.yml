@@ -97,6 +97,9 @@ jobs:
             echo "========================================"
             echo "Deploying instance to metro: $m"
             echo "========================================"
+            echo "Cleaning up any old instance in $m..."
+            unikraft instances delete --filter "metro==$m" --force 2>/dev/null || true
+
             RUN_JSON="$(unikraft run \
               --metro "$m" \
               --publish 443:8080/http+tls \

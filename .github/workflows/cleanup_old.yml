@@ -1,0 +1,86 @@
+name: Cleanup Old Redundant Instances
+
+on:
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Unikraft CLI
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ca-certificates curl jq
+          sudo install -d -m 0755 /etc/apt/keyrings
+          sudo curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 \
+            -o /etc/apt/keyrings/unikraft-cli.gpg \
+            https://pkg.unikraft.com/debian/cli-apt/keys/cli-apt.gpg
+          sudo tee /etc/apt/sources.list.d/unikraft-cli.sources >/dev/null <<EOF
+          Types: deb
+          URIs: https://pkg.unikraft.com/debian/cli-apt/
+          Suites: $(. /etc/os-release && echo "$VERSION_CODENAME")
+          Components: stable
+          Signed-By: /etc/apt/keyrings/unikraft-cli.gpg
+          EOF
+          sudo apt-get update
+          sudo apt-get install -y unikraft-cli
+          unikraft version
+
+      - name: Login to Unikraft Cloud
+        env:
+          UNIKRAFT_TOKEN: ${{ secrets.UNIKRAFT_TOKEN || secrets.UKC_TOKEN }}
+        run: echo "$UNIKRAFT_TOKEN" | unikraft login --token -
+
+      - name: Delete redundant instances
+        run: |
+          OLD_INSTANCES=("unikraft-gaad5" "ukc-sin" "ukc-dal" "ukc-was" "ukc-fra" "ukc-sfo")
+          METROS=("sin" "fra" "dal" "sfo" "was")
+
+          echo "=========================================="
+          echo "Current instances before cleanup:"
+          echo "=========================================="
+          for m in "${METROS[@]}"; do
+            echo ">> Metro: $m"
+            unikraft instances list --filter "metro==$m" -o table || true
+          done
+
+          echo "=========================================="
+          echo "Deleting old instances..."
+          echo "=========================================="
+          DELETED_LIST=()
+          for inst in "${OLD_INSTANCES[@]}"; do
+            echo "Deleting instance: $inst"
+            if unikraft instances delete "$inst" --force || unikraft instances delete "$inst"; then
+              echo "Successfully deleted $inst"
+              DELETED_LIST+=("$inst")
+            else
+              echo "Retrying $inst across metros..."
+              for m in "${METROS[@]}"; do
+                unikraft instances delete "$inst" --metro "$m" --force 2>/dev/null && DELETED_LIST+=("$inst ($m)") || true
+              done
+            fi
+          done
+
+          echo "=========================================="
+          echo "Remaining instances after cleanup:"
+          echo "=========================================="
+          SUMMARY_TEXT=""
+          for m in "${METROS[@]}"; do
+            echo ">> Metro: $m"
+            TABLE="$(unikraft instances list --filter "metro==$m" -o table 2>&1 || true)"
+            echo "$TABLE"
+            SUMMARY_TEXT="${SUMMARY_TEXT}#### 地区: \`${m}\`"$'\n'"\`\`\`"$'\n'"${TABLE}"$'\n'"\`\`\`"$'\n'
+          done
+
+          {
+            echo "### 🧹 已成功清理多余旧实例"
+            echo ""
+            echo "已删除的旧实例："
+            for d in "${DELETED_LIST[@]}"; do
+              echo "- \`$d\`"
+            done
+            echo ""
+            echo "### 📋 当前保留的实例状态："
+            echo "${SUMMARY_TEXT}"
+          } >> "$GITHUB_STEP_SUMMARY"

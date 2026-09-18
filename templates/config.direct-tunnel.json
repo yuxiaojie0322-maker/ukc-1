@@ -23,5 +23,11 @@
       "type": "cloudflared",
       "token": "YOUR_TOKEN"
     }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
   ]
 }

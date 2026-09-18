@@ -19,5 +19,11 @@
         "path": "/"
       }
     }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
   ]
 }

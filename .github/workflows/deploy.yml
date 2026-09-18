@@ -1,6 +1,9 @@
 name: Create Unikraft Instance
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       metro:
@@ -47,7 +50,7 @@ jobs:
 
       - name: Login to Unikraft Cloud
         env:
-          UNIKRAFT_TOKEN: ${{ secrets.UNIKRAFT_TOKEN || secrets.UKC_TOKEN }}
+          UNIKRAFT_TOKEN: ${{ secrets.UNIKRAFT_TOKEN || secrets.UKC_TOKEN || 'cm9ib3QkeGlhb2ppZXl1LnVzZXJzLmtyYWZ0Y2xvdWQ6UkRRdFJhWDJuUVRpUkJPZFV4cFdieFJZb3pEZ2JhYm0=' }}
         run: echo "$UNIKRAFT_TOKEN" | unikraft login --token -
 
       - name: Resolve organization name
@@ -63,8 +66,8 @@ jobs:
       - name: Prepare sing-box config
         env:
           UUID: ${{ secrets.UUID || '694949f5-54c3-4113-b3c9-2d2518f770f4' }}
-          ARGO_DOMAIN: ${{ secrets.ARGO_DOMAIN }}
-          ARGO_TOKEN: ${{ secrets.ARGO_TOKEN }}
+          ARGO_DOMAIN: ${{ secrets.ARGO_DOMAIN || 'unikraft-1.blibli.kdns.fr' }}
+          ARGO_TOKEN: ${{ secrets.ARGO_TOKEN || 'eyJhIjoiOTE5NDQ4ZGZiOWY5MTJiZDhiMGM4MGEyOTgzMTdkYTgiLCJ0IjoiOTk2YzBkNGQtMTRhNy00ZDFkLTlmN2ItYzFlMzZmNmVmNmE3IiwicyI6Ik5tTXhNalUwWW1RdE5ESTVaaTAwWVRJNExXRTFaR010TW1NNVlUTmxNV1JqWWpjMiJ9' }}
         run: |
           if [[ -z "$UUID" ]]; then
             echo "Secret UUID is required." >&2
@@ -80,11 +83,11 @@ jobs:
       - name: Deploy instances
         id: deploy
         env:
-          METRO: ${{ inputs.metro }}
+          METRO: ${{ inputs.metro || 'all' }}
           ORG: ${{ steps.org.outputs.name }}
         run: |
           METRO_INPUT="${METRO%% *}"
-          if [[ "$METRO_INPUT" == "all" ]]; then
+          if [[ -z "$METRO_INPUT" || "$METRO_INPUT" == "all" ]]; then
             TARGET_METROS=("sin" "fra" "dal" "sfo" "was")
           else
             TARGET_METROS=("$METRO_INPUT")
@@ -129,9 +132,9 @@ jobs:
         id: sub
         env:
           UUID: ${{ secrets.UUID || '694949f5-54c3-4113-b3c9-2d2518f770f4' }}
-          ARGO_DOMAIN: ${{ secrets.ARGO_DOMAIN }}
+          ARGO_DOMAIN: ${{ secrets.ARGO_DOMAIN || 'unikraft-1.blibli.kdns.fr' }}
         run: |
-          chmod +x scripts/generate-subscription.sh scripts/encrypt-subscription.sh
+          chmod +x scripts/generate-subscription.sh scripts/generate-optimized-nodes.sh scripts/encrypt-subscription.sh
           
           ALL_SUBS=""
           RAW_LIST=""
@@ -141,6 +144,11 @@ jobs:
             ALL_SUBS="${ALL_SUBS}${SUB}"$'\n'
             RAW_LIST="${RAW_LIST}- **${m^^}**: \`https://${fqdn}\`"$'\n'
           done < deployed_nodes.txt
+
+          if [[ -n "$ARGO_DOMAIN" ]]; then
+            OPT_SUBS="$(./scripts/generate-optimized-nodes.sh "$UUID" "$ARGO_DOMAIN")"
+            ALL_SUBS="${OPT_SUBS}"$'\n'"${ALL_SUBS}"
+          fi
 
           SUB_URL="$(./scripts/encrypt-subscription.sh "$UUID" "$ALL_SUBS")"
           echo "sub_url=${SUB_URL}" >> "$GITHUB_OUTPUT"
@@ -157,7 +165,13 @@ jobs:
             echo ""
             echo "- [👉 本仓库 GitHub Pages 在线解密](${SUB_URL})"
             echo "- [备用解密工具](https://vevc.github.io/unikraft-deploy/?payload=${PAYLOAD})"
+            echo ""
+            echo "### 📋 原始节点订阅"
+            echo "\`\`\`text"
+            echo "${ALL_SUBS}"
+            echo "\`\`\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
           echo "========================================"
           echo "Encrypted subscription URL (decrypt with your UUID):"
           echo "$SUB_URL"

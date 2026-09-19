@@ -6,17 +6,16 @@ on:
       - main
   workflow_dispatch:
     inputs:
-      metro:
-        description: 部署地区
+      target:
+        description: 部署目标
         required: true
         type: choice
-        default: sin - 新加坡 (Singapore)
+        default: all_three - 部署三地 (新加坡 sin + 美西旧金山 sfo + 法兰克福 fra)
         options:
-          - dal - 达拉斯 (Dallas, US)
-          - fra - 法兰克福 (Frankfurt, DE)
-          - sfo - 旧金山 (San Francisco, US)
-          - sin - 新加坡 (Singapore)
-          - was - 华盛顿 (Washington DC, US)
+          - all_three - 部署三地 (新加坡 sin + 美西旧金山 sfo + 法兰克福 fra)
+          - sin - 仅新加坡 (Singapore)
+          - sfo - 仅美西旧金山 (San Francisco)
+          - fra - 仅欧洲法兰克福 (Frankfurt)
 
 jobs:
   deploy:
@@ -28,8 +27,6 @@ jobs:
       - name: Install Unikraft CLI
         run: |
           set -euo pipefail
-
-          # Prefer official apt repo (avoids flaky GitHub release CDN).
           sudo apt-get update
           sudo apt-get install -y ca-certificates curl jq
           sudo install -d -m 0755 /etc/apt/keyrings
@@ -60,81 +57,132 @@ jobs:
           echo "name=${ORG}" >> "$GITHUB_OUTPUT"
           echo "Using organization: ${ORG}"
 
-      - name: Prepare sing-box config
-        env:
-          UUID: ${{ secrets.UUID || '694949f5-54c3-4113-b3c9-2d2518f770f4' }}
-          ARGO_DOMAIN: ${{ secrets.ARGO_DOMAIN || 'unikraft-1.blibli.kdns.fr' }}
-          ARGO_TOKEN: ${{ secrets.ARGO_TOKEN || 'eyJhIjoiOTE5NDQ4ZGZiOWY5MTJiZDhiMGM4MGEyOTgzMTdkYTgiLCJ0IjoiOTk2YzBkNGQtMTRhNy00ZDFkLTlmN2ItYzFlMzZmNmVmNmE3IiwicyI6Ik5tTXhNalUwWW1RdE5ESTVaaTAwWVRJNExXRTFaR010TW1NNVlUTmxNV1JqWWpjMiJ9' }}
-        run: |
-          chmod +x scripts/prepare-config.sh
-          ./scripts/prepare-config.sh "$UUID" "$ARGO_DOMAIN" "$ARGO_TOKEN"
-
-      - name: Build image
-        run: |
-          unikraft build . --output "${{ steps.org.outputs.name }}/unikraft:latest"
-
-      - name: Deploy instance
+      - name: Deploy instances and generate nodes
         id: deploy
         env:
-          METRO: ${{ inputs.metro || 'sin - 新加坡 (Singapore)' }}
+          TARGET: ${{ inputs.target || 'all_three' }}
           ORG: ${{ steps.org.outputs.name }}
+          UUID: ${{ secrets.UUID || '694949f5-54c3-4113-b3c9-2d2518f770f4' }}
+          ARGO_TOKEN_SIN: 'eyJhIjoiOTE5NDQ4ZGZiOWY5MTJiZDhiMGM4MGEyOTgzMTdkYTgiLCJ0IjoiOTk2YzBkNGQtMTRhNy00ZDFkLTlmN2ItYzFlMzZmNmVmNmE3IiwicyI6Ik5tTXhNalUwWW1RdE5ESTVaaTAwWVRJNExXRTFaR010TW1NNVlUTmxNV1JqWWpjMiJ9'
+          ARGO_TOKEN_SFO: 'eyJhIjoiOTE5NDQ4ZGZiOWY5MTJiZDhiMGM4MGEyOTgzMTdkYTgiLCJ0IjoiZGYxNmM0MTQtZTJjMC00YTA4LWFmZGItYzYwNzM4MmI1MzNiIiwicyI6Ik16TTFPRFEyWVRrdE4yWTVNUzAwWldabUxUa3dPR1l0TnpOaVl6TXpNek0wTkdGbCJ9'
+          ARGO_TOKEN_FRA: 'eyJhIjoiOTE5NDQ4ZGZiOWY5MTJiZDhiMGM4MGEyOTgzMTdkYTgiLCJ0IjoiMzI1NjllZGEtMmQzYy00NmVjLTg3ZmItODkxNDZmOTM4M2RjIiwicyI6Ik1qaGhNRGcwT0RndE9HSmhOUzAwWXpFMUxUbGtZMll0TlRnMllUZzVOalE1T1RWayJ9'
         run: |
-          METRO_CODE="${METRO%% *}"
-          echo "Cleaning up all old instances across all metros to avoid conflicts..."
-          for m in sin dal fra sfo was; do
+          set -euo pipefail
+          chmod +x scripts/prepare-config.sh scripts/prepare-config.py scripts/generate-subscription.sh scripts/encrypt-subscription.sh
+
+          METRO_TARGET="${TARGET%% *}"
+          
+          # Clean unused metros if any
+          unikraft instances delete --filter "metro==dal" --force 2>/dev/null || true
+          unikraft instances delete --filter "metro==was" --force 2>/dev/null || true
+
+          declare -A METRO_DOMAINS=(
+            ["sin"]="unikraft-1.blibli.kdns.fr"
+            ["sfo"]="unikraft-us.blibli.kdns.fr"
+            ["fra"]="unikraft-eu.blibli.kdns.fr"
+          )
+          declare -A METRO_TOKENS=(
+            ["sin"]="$ARGO_TOKEN_SIN"
+            ["sfo"]="$ARGO_TOKEN_SFO"
+            ["fra"]="$ARGO_TOKEN_FRA"
+          )
+          declare -A METRO_NAMES=(
+            ["sin"]="🇸🇬新加坡 (Singapore)"
+            ["sfo"]="🇺🇸美西旧金山 (San Francisco)"
+            ["fra"]="🇩🇪欧洲法兰克福 (Frankfurt)"
+          )
+
+          if [[ "$METRO_TARGET" == "all_three" || "$METRO_TARGET" == "all" ]]; then
+            ACTIVE_METROS=("sin" "sfo" "fra")
+          else
+            ACTIVE_METROS=("$METRO_TARGET")
+          fi
+
+          DEPLOY_RESULTS=()
+
+          for m in "${ACTIVE_METROS[@]}"; do
+            echo "=================================================="
+            echo "Deploying metro: $m (${METRO_NAMES[$m]})"
+            echo "=================================================="
+            domain="${METRO_DOMAINS[$m]}"
+            token="${METRO_TOKENS[$m]}"
+            
+            # Prepare config
+            ./scripts/prepare-config.sh "$UUID" "$domain" "$token"
+            
+            # Build image with specific tag
+            IMAGE_TAG="${ORG}/unikraft-${m}:latest"
+            unikraft build . --output "$IMAGE_TAG"
+            
+            # Clean old instance in this metro
             unikraft instances delete --filter "metro==$m" --force 2>/dev/null || true
+            
+            # Run new instance
+            RUN_JSON="$(unikraft run \
+              --metro "$m" \
+              --publish 443:8080/http+tls \
+              -m 512M \
+              --image "$IMAGE_TAG" \
+              -o json)"
+            echo "$RUN_JSON" > "run-${m}.json"
+            
+            FQDN="$(jq -r '[.. | objects | .fqdn? | select(type == "string")] | first // empty' "run-${m}.json")"
+            if [[ -z "$FQDN" || "$FQDN" == "null" ]]; then
+              echo "Failed to deploy $m" >&2
+              cat "run-${m}.json" >&2
+              exit 1
+            fi
+            echo "Successfully deployed $m at https://${FQDN}"
+            DEPLOY_RESULTS+=("${m}|${FQDN}|${domain}|${METRO_NAMES[$m]}")
           done
 
-          RUN_JSON="$(unikraft run \
-            --metro "$METRO_CODE" \
-            --publish 443:8080/http+tls \
-            -m 512M \
-            --image "${ORG}/unikraft:latest" \
-            -o json)"
-          echo "$RUN_JSON" > run-output.json
-          FQDN="$(jq -r '[.. | objects | .fqdn? | select(type == "string")] | first // empty' run-output.json)"
-          if [[ -z "$FQDN" || "$FQDN" == "null" ]]; then
-            echo "Failed to resolve instance FQDN from deploy output." >&2
-            cat run-output.json >&2
-            exit 1
-          fi
-          echo "fqdn=${FQDN}" >> "$GITHUB_OUTPUT"
-          echo "metro=${METRO_CODE}" >> "$GITHUB_OUTPUT"
-          echo "Deployed at: https://${FQDN}"
+          # Generate combined subscription text
+          ALL_SUBS=""
+          RAW_REPORT=""
+          
+          # Custom CF domains requested by user:
+          CUSTOM_CF_DOMAINS=("cdns.doon.eu.org" "hk.cf.090227.xyz" "cf.090227.xyz" "spring.io")
 
-      - name: Generate encrypted subscription link
-        env:
-          UUID: ${{ secrets.UUID || '694949f5-54c3-4113-b3c9-2d2518f770f4' }}
-          ARGO_DOMAIN: ${{ secrets.ARGO_DOMAIN || 'unikraft-1.blibli.kdns.fr' }}
-        run: |
-          chmod +x scripts/generate-subscription.sh scripts/encrypt-subscription.sh
-          SUBSCRIPTION="$(./scripts/generate-subscription.sh \
-            "$UUID" \
-            "${{ steps.deploy.outputs.fqdn }}" \
-            "$ARGO_DOMAIN")"
-          SUB_URL="$(./scripts/encrypt-subscription.sh "$UUID" "$SUBSCRIPTION")"
+          for line in "${DEPLOY_RESULTS[@]}"; do
+            IFS='|' read -r m fqdn domain name <<< "$line"
+            RAW_REPORT="${RAW_REPORT}- **${name}**: \`https://${fqdn}\` (隧道: \`${domain}\`)"$'\n'
+            
+            # 1. Direct official node
+            ALL_SUBS="${ALL_SUBS}vless://${UUID}@${fqdn}:443?encryption=none&security=tls&sni=${fqdn}&fp=chrome&insecure=0&allowInsecure=0&type=ws&host=${fqdn}&path=%2F#${name}-官方直连"$'\n'
+            
+            # 2. Argo Tunnel direct node
+            ALL_SUBS="${ALL_SUBS}vless://${UUID}@${domain}:443?encryption=none&security=tls&sni=${domain}&fp=chrome&insecure=0&allowInsecure=0&type=ws&host=${domain}&path=%2F#${name}-Argo直连"$'\n'
+            
+            # 3. User preferred CF domains
+            for cf in "${CUSTOM_CF_DOMAINS[@]}"; do
+              ALL_SUBS="${ALL_SUBS}vless://${UUID}@${cf}:443?encryption=none&security=tls&sni=${domain}&fp=chrome&insecure=0&allowInsecure=0&type=ws&host=${domain}&path=%2F#${name}-${cf}"$'\n'
+            done
+            ALL_SUBS="${ALL_SUBS}"$'\n'
+          done
+
+          SUB_URL="$(./scripts/encrypt-subscription.sh "$UUID" "$ALL_SUBS")"
+
           {
-            echo "### 部署完成"
+            echo "### 🚀 节点部署完成 (共 ${#DEPLOY_RESULTS[@]} 个地区)"
             echo ""
-            echo "- **地区**: \`${{ steps.deploy.outputs.metro }}\`"
-            echo "- **域名**: \`${{ steps.deploy.outputs.fqdn }}\`"
-            echo "- **镜像**: \`${{ steps.org.outputs.name }}/unikraft:latest\`"
+            echo "${RAW_REPORT}"
             echo ""
-            echo "### 获取订阅信息"
+            echo "### 🔐 获取完整订阅信息"
             echo ""
             echo "访问下方链接并使用 UUID 解密订阅信息："
             echo ""
-            echo "- [解密链接](${SUB_URL})"
+            echo "- [👉 在线解密订阅](${SUB_URL})"
             echo ""
             echo "### 📋 原始订阅链接"
             echo "\`\`\`text"
-            echo "$SUBSCRIPTION"
+            echo "${ALL_SUBS}"
             echo "\`\`\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
           echo "========================================"
-          echo "Encrypted subscription URL (decrypt with your UUID):"
+          echo "Encrypted subscription URL:"
           echo "$SUB_URL"
           echo "========================================"
-          echo "RAW SUBSCRIPTION:"
-          echo "$SUBSCRIPTION"
+          echo "ALL NODES:"
+          echo "$ALL_SUBS"
           echo "========================================"

@@ -1,7 +1,16 @@
 {
   "log": {
-    "level": "panic",
+    "level": "debug",
     "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-direct",
+        "type": "udp",
+        "server": "1.1.1.1"
+      }
+    ]
   },
   "inbounds": [
     {
@@ -25,5 +34,9 @@
       "type": "direct",
       "tag": "direct"
     }
-  ]
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "final": "direct"
+  }
 }

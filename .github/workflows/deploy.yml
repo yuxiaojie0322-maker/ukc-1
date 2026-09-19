@@ -62,14 +62,10 @@ jobs:
 
       - name: Prepare sing-box config
         env:
-          UUID: ${{ secrets.UUID || '2584b733-9095-4bec-a7d5-62b473540f7a' }}
+          UUID: ${{ secrets.UUID || '694949f5-54c3-4113-b3c9-2d2518f770f4' }}
           ARGO_DOMAIN: ${{ secrets.ARGO_DOMAIN || 'unikraft-1.blibli.kdns.fr' }}
           ARGO_TOKEN: ${{ secrets.ARGO_TOKEN || 'eyJhIjoiOTE5NDQ4ZGZiOWY5MTJiZDhiMGM4MGEyOTgzMTdkYTgiLCJ0IjoiOTk2YzBkNGQtMTRhNy00ZDFkLTlmN2ItYzFlMzZmNmVmNmE3IiwicyI6Ik5tTXhNalUwWW1RdE5ESTVaaTAwWVRJNExXRTFaR010TW1NNVlUTmxNV1JqWWpjMiJ9' }}
         run: |
-          if [[ -z "$UUID" ]]; then
-            echo "Secret UUID is required." >&2
-            exit 1
-          fi
           chmod +x scripts/prepare-config.sh
           ./scripts/prepare-config.sh "$UUID" "$ARGO_DOMAIN" "$ARGO_TOKEN"
 
@@ -84,8 +80,11 @@ jobs:
           ORG: ${{ steps.org.outputs.name }}
         run: |
           METRO_CODE="${METRO%% *}"
-          echo "Cleaning up existing instance in $METRO_CODE if any..."
-          unikraft instances delete --filter "metro==$METRO_CODE" --force 2>/dev/null || true
+          echo "Cleaning up all old instances across all metros to avoid conflicts..."
+          for m in sin dal fra sfo was; do
+            unikraft instances delete --filter "metro==$m" --force 2>/dev/null || true
+          done
+
           RUN_JSON="$(unikraft run \
             --metro "$METRO_CODE" \
             --publish 443:8080/http+tls \
@@ -105,7 +104,7 @@ jobs:
 
       - name: Generate encrypted subscription link
         env:
-          UUID: ${{ secrets.UUID || '2584b733-9095-4bec-a7d5-62b473540f7a' }}
+          UUID: ${{ secrets.UUID || '694949f5-54c3-4113-b3c9-2d2518f770f4' }}
           ARGO_DOMAIN: ${{ secrets.ARGO_DOMAIN || 'unikraft-1.blibli.kdns.fr' }}
         run: |
           chmod +x scripts/generate-subscription.sh scripts/encrypt-subscription.sh

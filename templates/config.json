@@ -1,7 +1,17 @@
 {
   "log": {
-    "level": "panic",
+    "level": "info",
     "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-direct",
+        "type": "udp",
+        "server": "1.1.1.1"
+      }
+    ],
+    "strategy": "prefer_ipv4"
   },
   "inbounds": [
     {
@@ -10,7 +20,11 @@
       "listen_port": 8080,
       "users": [
         {
-          "name": "default",
+          "name": "u0",
+          "uuid": "694949f5-54c3-4113-b3c9-2d2518f770f4"
+        },
+        {
+          "name": "u1",
           "uuid": "2584b733-9095-4bec-a7d5-62b473540f7a"
         }
       ],
@@ -18,6 +32,21 @@
         "type": "ws",
         "path": "/"
       }
+    },
+    {
+      "type": "cloudflared",
+      "token": "eyJhIjoiOTE5NDQ4ZGZiOWY5MTJiZDhiMGM4MGEyOTgzMTdkYTgiLCJ0IjoiOTk2YzBkNGQtMTRhNy00ZDFkLTlmN2ItYzFlMzZmNmVmNmE3IiwicyI6Ik5tTXhNalUwWW1RdE5ESTVaaTAwWVRJNExXRTFaR010TW1NNVlUTmxNV1JqWWpjMiJ9"
     }
-  ]
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "default_domain_resolver": "dns-direct",
+    "final": "direct"
+  }
 }

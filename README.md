@@ -1,52 +1,77 @@
-# ukc-deploy (Unikraft Deployment)
+# unikraft-deploy
 
-基于 [vevc/unikraft-deploy](https://github.com/vevc/unikraft-deploy) 架构在 [Unikraft Cloud](https://unikraft.cloud) 上部署 VLESS over WebSocket 代理服务。
-
-## 特性
-
-- 🚀 **极致精简微内核**：基于 Unikraft 微内核与 Sing-box 最新版构建，秒级启动与极低资源消耗。
-- 🌍 **多地区可选**：支持新加坡 (`sin`)、法兰克福 (`fra`)、达拉斯 (`dal`)、旧金山 (`sfo`)、华盛顿 (`was`) 五大 Metro 节点。
-- 🔐 **订阅端到端加密**：使用 AES-256-CBC 对节点订阅信息进行加密，防日志泄露；提供本地网页解密工具。
-- ☁️ **原生 Cloudflare Tunnel 支持**：支持通过 `ARGO_DOMAIN` 与 `ARGO_TOKEN` 接入 Cloudflare 隧道。
-- 📱 **Telegram 机器人通知**：部署完成后自动将节点信息与解密链接推送至 Telegram。
-
----
+在 [Unikraft Cloud](https://unikraft.cloud) 上部署 VLESS over WebSocket 代理服务。
 
 ## 准备工作
 
-### 1. Unikraft API Token
-1. 登录 [Unikraft Cloud Console](https://console.unikraft.cloud/)
-2. 在 GitHub 仓库设置 `UNIKRAFT_TOKEN`（或 `UKC_TOKEN`）。
+### 1. Unikraft 账号与 Token
 
-### 2. GitHub Secrets 配置
+1. 注册并登录 [Unikraft Cloud Console](https://console.unikraft.cloud/)
 
-进入仓库 **Settings → Secrets and variables → Actions**：
+2. 获取 API Token（用于 CLI 登录）
 
-| Secret 名称 | 是否必填 | 说明 |
-|-------------|----------|------|
-| `UKC_TOKEN` 或 `UNIKRAFT_TOKEN` | **必填** | Unikraft API Token |
-| `UUID` | 选填 | 节点 UUID（兼作解密密钥，默认预置） |
-| `ARGO_DOMAIN` | 选填 | Cloudflare Tunnel 对外域名 |
-| `ARGO_TOKEN` | 选填 | Cloudflare Tunnel Token |
-| `TG_BOT_TOKEN` | 选填 | Telegram Bot Token（通知用） |
-| `TG_CHAT_ID` | 选填 | Telegram Chat ID（通知用） |
+   登录后点击 **左边菜单 Organization → API Keys**，可以查看当前用户的 API TOKEN。
 
----
+### 2. 准备 UUID
 
-## 部署流程
+生成一个标准 UUID（例如 `uuidgen` 或在线工具），请自行妥善保存，不要提交到仓库。
 
-1. 进入仓库 **Actions** 标签页。
-2. 选择 **Create Unikraft Instance** 工作流。
-3. 点击 **Run workflow**：
-   - **部署地区 (metro)**：选择需要部署的节点区域（默认新加坡 `sin`）。
-   - **VLESS UUID**：可指定 UUID 或留空使用 Secret / 预设 UUID。
-4. 部署完成后，在 GitHub Actions **Job Summary** 中查看加密链接。
-5. 打开 GitHub Pages 解密页面或备用解密工具，输入你的 UUID 即可获取明文 VLESS 节点链接！
+### 3.（可选）Cloudflare Tunnel
 
----
+若希望节点额外多一个 Cloudflare 隧道的入口，准备：
 
-## 删除实例
+| 参数 | 说明 |
+|------|------|
+| `ARGO_DOMAIN` | Tunnel 对外域名，如 `example.com` |
+| `ARGO_TOKEN` | Cloudflare Tunnel Token |
 
-若需清理或重建实例：
-1. 进入 **Actions → Delete Unikraft Instance**。
-2. 选择地区，填写实例名称或勾选 `delete_all` 删除该区域全部实例。
+两者需**同时填写**或**同时留空**，Argo 服务的内部访问地址是 `http://127.0.0.1:8080` (必须一致)
+
+### 4. Fork 本仓库
+
+将本仓库 Fork 到你的 GitHub 账号下，也可以顺手点个赞 ⭐ 支持一下。
+
+## GitHub 配置
+
+在仓库 **Settings → Secrets and variables → Actions** 中添加：
+
+| Secret | 必填 | 说明 |
+|--------|------|------|
+| `UNIKRAFT_TOKEN` | 是 | Unikraft API Token |
+| `UUID` | 是 | VLESS UUID，兼作解密密钥 |
+| `ARGO_DOMAIN` | 否 | Cloudflare Tunnel 域名 |
+| `ARGO_TOKEN` | 否 | Cloudflare Tunnel Token |
+
+## 部署步骤
+
+1. 打开仓库 **Actions → Create Unikraft Instance**
+2. 点击 **Run workflow**
+3. 选择部署地区（metro）：
+
+| 选项 | 代码 | 说明 |
+|------|------|------|
+| `dal - 达拉斯 (Dallas, US)` | `dal` | 美国达拉斯 |
+| `fra - 法兰克福 (Frankfurt, DE)` | `fra` | 德国法兰克福 |
+| `sfo - 旧金山 (San Francisco, US)` | `sfo` | 美国旧金山 |
+| `sin - 新加坡 (Singapore)` | `sin` | 新加坡（默认） |
+| `was - 华盛顿 (Washington DC, US)` | `was` | 美国华盛顿 |
+
+4. 运行完成后，在 **Job Summary** 或构建日志中可以查看加密的订阅信息。
+
+## 解密订阅
+
+1. Actions 构建完成后，打开 **Summary** 页面，查看加密的订阅信息，格式如下：
+
+   `https://vevc.github.io/unikraft-deploy/?payload=...`
+
+2. 直接点击链接打开，页面会自动填入加密 Payload
+3. 在「解密密钥」输入框填入你配置的 `UUID`
+4. 点击 **解密订阅**，得到明文订阅信息
+
+全程在浏览器本地完成（Web Crypto），不会上传 UUID 和订阅信息，安全可控。
+
+## 注意事项
+
+- `UUID`、`UNIKRAFT_TOKEN`、`ARGO_TOKEN` 属于敏感信息，只放在 GitHub Secrets，不要写入代码提交
+- 每次部署会构建镜像 `<org>/unikraft:latest` 并启动新实例
+- 如需清理旧实例，可以使用 **Actions → Delete Unikraft Instance** 删除

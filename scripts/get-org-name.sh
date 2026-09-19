@@ -56,9 +56,9 @@ PY
 )"
 
 if [[ -z "$ORG" || "$ORG" == "null" ]]; then
-  ORG="${UKC_ORG:-${ORGANIZATION:-xiaojieyu}}"
-  echo "$ORG"
-  exit 0
+  echo "Unable to determine Unikraft organization name from $CONFIG" >&2
+  echo "Ensure UNIKRAFT_TOKEN is valid and the account has an organization." >&2
+  exit 1
 fi
 
 echo "$ORG"

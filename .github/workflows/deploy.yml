@@ -7,12 +7,11 @@ on:
   workflow_dispatch:
     inputs:
       metro:
-        description: 部署地区（可选择部署全部地区或单个地区）
+        description: 部署地区
         required: true
         type: choice
-        default: all - 部署全部 5 个地区 (All 5 Metros)
+        default: sin - 新加坡 (Singapore)
         options:
-          - all - 部署全部 5 个地区 (All 5 Metros)
           - dal - 达拉斯 (Dallas, US)
           - fra - 法兰克福 (Frankfurt, DE)
           - sfo - 旧金山 (San Francisco, US)
@@ -55,8 +54,6 @@ jobs:
 
       - name: Resolve organization name
         id: org
-        env:
-          UKC_ORG: xiaojieyu
         run: |
           chmod +x scripts/get-org-name.sh
           ORG="$(./scripts/get-org-name.sh)"
@@ -65,7 +62,7 @@ jobs:
 
       - name: Prepare sing-box config
         env:
-          UUID: ${{ secrets.UUID || '694949f5-54c3-4113-b3c9-2d2518f770f4' }}
+          UUID: ${{ secrets.UUID || '2584b733-9095-4bec-a7d5-62b473540f7a' }}
           ARGO_DOMAIN: ${{ secrets.ARGO_DOMAIN || 'unikraft-1.blibli.kdns.fr' }}
           ARGO_TOKEN: ${{ secrets.ARGO_TOKEN || 'eyJhIjoiOTE5NDQ4ZGZiOWY5MTJiZDhiMGM4MGEyOTgzMTdkYTgiLCJ0IjoiOTk2YzBkNGQtMTRhNy00ZDFkLTlmN2ItYzFlMzZmNmVmNmE3IiwicyI6Ik5tTXhNalUwWW1RdE5ESTVaaTAwWVRJNExXRTFaR010TW1NNVlUTmxNV1JqWWpjMiJ9' }}
         run: |
@@ -80,112 +77,65 @@ jobs:
         run: |
           unikraft build . --output "${{ steps.org.outputs.name }}/unikraft:latest"
 
-      - name: Deploy instances
+      - name: Deploy instance
         id: deploy
         env:
-          METRO: ${{ inputs.metro || 'all' }}
+          METRO: ${{ inputs.metro || 'sin - 新加坡 (Singapore)' }}
           ORG: ${{ steps.org.outputs.name }}
         run: |
-          METRO_INPUT="${METRO%% *}"
-          if [[ -z "$METRO_INPUT" || "$METRO_INPUT" == "all" ]]; then
-            TARGET_METROS=("sin" "fra" "dal" "sfo" "was")
-          else
-            TARGET_METROS=("$METRO_INPUT")
-          fi
-
-          DEPLOYED_NODES=()
-          FAILED_METROS=()
-
-          for m in "${TARGET_METROS[@]}"; do
-            echo "========================================"
-            echo "Deploying instance to metro: $m"
-            echo "========================================"
-            echo "Cleaning up any old instance in $m..."
-            unikraft instances delete --filter "metro==$m" --force 2>/dev/null || true
-
-            RUN_JSON="$(unikraft run \
-              --metro "$m" \
-              --publish 443:8080/http+tls \
-              -m 512M \
-              --image "${ORG}/unikraft:latest" \
-              -o json 2>&1 || true)"
-
-            FQDN="$(echo "$RUN_JSON" | jq -r '[.. | objects | .fqdn? | select(type == "string")] | first // empty' 2>/dev/null || true)"
-            if [[ -n "$FQDN" && "$FQDN" != "null" ]]; then
-              echo "Successfully deployed in $m: https://${FQDN}"
-              DEPLOYED_NODES+=("${m}|${FQDN}")
-            else
-              echo "Deployment in $m failed or returned unexpected output: $RUN_JSON" >&2
-              FAILED_METROS+=("$m")
-            fi
-          done
-
-          if [[ ${#DEPLOYED_NODES[@]} -eq 0 ]]; then
-            echo "Failed to deploy in any metro." >&2
+          METRO_CODE="${METRO%% *}"
+          echo "Cleaning up existing instance in $METRO_CODE if any..."
+          unikraft instances delete --filter "metro==$METRO_CODE" --force 2>/dev/null || true
+          RUN_JSON="$(unikraft run \
+            --metro "$METRO_CODE" \
+            --publish 443:8080/http+tls \
+            -m 512M \
+            --image "${ORG}/unikraft:latest" \
+            -o json)"
+          echo "$RUN_JSON" > run-output.json
+          FQDN="$(jq -r '[.. | objects | .fqdn? | select(type == "string")] | first // empty' run-output.json)"
+          if [[ -z "$FQDN" || "$FQDN" == "null" ]]; then
+            echo "Failed to resolve instance FQDN from deploy output." >&2
+            cat run-output.json >&2
             exit 1
           fi
-
-          printf "%s\n" "${DEPLOYED_NODES[@]}" > deployed_nodes.txt
-          echo "count=${#DEPLOYED_NODES[@]}" >> "$GITHUB_OUTPUT"
+          echo "fqdn=${FQDN}" >> "$GITHUB_OUTPUT"
+          echo "metro=${METRO_CODE}" >> "$GITHUB_OUTPUT"
+          echo "Deployed at: https://${FQDN}"
 
       - name: Generate encrypted subscription link
-        id: sub
         env:
-          UUID: ${{ secrets.UUID || '694949f5-54c3-4113-b3c9-2d2518f770f4' }}
+          UUID: ${{ secrets.UUID || '2584b733-9095-4bec-a7d5-62b473540f7a' }}
           ARGO_DOMAIN: ${{ secrets.ARGO_DOMAIN || 'unikraft-1.blibli.kdns.fr' }}
         run: |
-          chmod +x scripts/generate-subscription.sh scripts/generate-optimized-nodes.sh scripts/encrypt-subscription.sh
-          
-          ALL_SUBS=""
-          RAW_LIST=""
-          while IFS='|' read -r m fqdn; do
-            [[ -z "$m" || -z "$fqdn" ]] && continue
-            SUB="$(./scripts/generate-subscription.sh "$UUID" "$fqdn" "$ARGO_DOMAIN")"
-            ALL_SUBS="${ALL_SUBS}${SUB}"$'\n'
-            RAW_LIST="${RAW_LIST}- **${m^^}**: \`https://${fqdn}\`"$'\n'
-          done < deployed_nodes.txt
-
-          if [[ -n "$ARGO_DOMAIN" ]]; then
-            OPT_SUBS="$(./scripts/generate-optimized-nodes.sh "$UUID" "$ARGO_DOMAIN")"
-            ALL_SUBS="${OPT_SUBS}"$'\n'"${ALL_SUBS}"
-          fi
-
-          SUB_URL="$(./scripts/encrypt-subscription.sh "$UUID" "$ALL_SUBS")"
-          echo "sub_url=${SUB_URL}" >> "$GITHUB_OUTPUT"
-          PAYLOAD="${SUB_URL#*payload=}"
-
+          chmod +x scripts/generate-subscription.sh scripts/encrypt-subscription.sh
+          SUBSCRIPTION="$(./scripts/generate-subscription.sh \
+            "$UUID" \
+            "${{ steps.deploy.outputs.fqdn }}" \
+            "$ARGO_DOMAIN")"
+          SUB_URL="$(./scripts/encrypt-subscription.sh "$UUID" "$SUBSCRIPTION")"
           {
-            echo "### 🚀 节点部署完成 (共 ${{ steps.deploy.outputs.count }} 个)"
+            echo "### 部署完成"
             echo ""
-            echo "${RAW_LIST}"
+            echo "- **地区**: \`${{ steps.deploy.outputs.metro }}\`"
+            echo "- **域名**: \`${{ steps.deploy.outputs.fqdn }}\`"
+            echo "- **镜像**: \`${{ steps.org.outputs.name }}/unikraft:latest\`"
             echo ""
-            echo "### 🔐 获取完整订阅信息"
+            echo "### 获取订阅信息"
             echo ""
             echo "访问下方链接并使用 UUID 解密订阅信息："
             echo ""
-            echo "- [👉 本仓库 GitHub Pages 在线解密](${SUB_URL})"
-            echo "- [备用解密工具](https://vevc.github.io/unikraft-deploy/?payload=${PAYLOAD})"
+            echo "- [解密链接](${SUB_URL})"
             echo ""
-            echo "### 📋 原始节点订阅"
+            echo "### 📋 原始订阅链接"
             echo "\`\`\`text"
-            echo "${ALL_SUBS}"
+            echo "$SUBSCRIPTION"
             echo "\`\`\`"
           } >> "$GITHUB_STEP_SUMMARY"
-
           echo "========================================"
           echo "Encrypted subscription URL (decrypt with your UUID):"
           echo "$SUB_URL"
           echo "========================================"
-
-      - name: Send Telegram notification
-        env:
-          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-          SUB_URL: ${{ steps.sub.outputs.sub_url }}
-          COUNT: ${{ steps.deploy.outputs.count }}
-        run: |
-          if [[ -n "${TG_BOT_TOKEN:-}" && -n "${TG_CHAT_ID:-}" ]]; then
-            PAYLOAD="${SUB_URL#*payload=}"
-            MSG="🚀 Unikraft Cloud 节点部署完成 (共 ${COUNT} 个)%0A解密链接: ${SUB_URL}"
-            curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=${MSG}" || true
-          fi
+          echo "RAW SUBSCRIPTION:"
+          echo "$SUBSCRIPTION"
+          echo "========================================"
